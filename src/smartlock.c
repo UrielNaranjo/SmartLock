@@ -7,9 +7,22 @@
 // global variables
 unsigned char lockdir = 0; // 0: counterclockwise 1: clockwise
 unsigned char go = 0; // notifies stepper motor to turn the lock
-unsigned char row; // rows to display on led matrix
+unsigned char row = 0x80;; // rows to display on led matrix
 unsigned char pattern; // patterns to display on led matrix
 unsigned char data; // data received from app
+/*unsigned char rgb[8][8] = { // controls the color of the LED Matrix
+	{1,0,0},  // col 1 = red, col 2 = green, col 3 = blue
+	{0,1,0},
+	{0,0,1},
+	{1,1,0},
+	{1,0,1},
+	{0,1,1},
+	{1,1,1},
+	{0,0,1}
+};*/
+unsigned char red = 0x9C;
+unsigned char green = 0x56;
+unsigned char blue = 0x2F;
 
 // Stepper motor SM to control the turning of the lock
 enum StepperMotor{stepperInit, stepperWait, A, AB, B, BC, C, CD, D, DA }stepperState;
@@ -37,7 +50,9 @@ void ReceiveTask();
 
 // shift register functions
 void rowTransmit(unsigned char data);
-void patternTransmit(unsigned char data);
+void TransmitRed(unsigned char data);
+void TransmitGreen(unsigned char data);
+void TransmitBlue(unsigned char data);
 
 void StartSecPulse(unsigned portBASE_TYPE Priority){
 	xTaskCreate(stepTask, (signed portCHAR *)"stepSecTask", configMINIMAL_STACK_SIZE, NULL, 3, NULL );
@@ -270,8 +285,10 @@ void LEDMatrixTick(){
 			break;
 		
 		case leddisplay:
-			rowTransmit(~row);
-			patternTransmit(pattern);
+			rowTransmit(row);
+			TransmitRed(red);
+			TransmitGreen(green);
+			TransmitBlue(blue);
 			break;
 		
 		default:
@@ -418,8 +435,47 @@ void rowTransmit(unsigned char data) {
 	PORTC = 0x00;
 }
 
-// send LED matrix data to shift register
-void patternTransmit(unsigned char data) {
+// send Red LED matrix data to shift register
+void TransmitRed(unsigned char data) {
+	// for each bit of data
+	for(int i = 7; i >=0; --i){
+		// Set SRCLR to 1 allowing data to be set
+		// Also clear SRCLK in preparation of sending data
+		PORTC = 0x08;
+		// set SER = next bit of data to be sent.
+		PORTC |= (data >>i) & 0x01;
+		// set SRCLK = 1. Rising edge shifts next bit of data into the shift register
+		// end for each bit of data
+		PORTC |= 0x04;
+	}
+	// set RCLK = 1. Rising edge copies data from the "Shift" register to the "Storage" register
+	PORTC |= 0x02;
+	// clears all lines in preparation of a new transmission
+	PORTC = 0x00;
+}
+
+// send Green LED matrix data to shift register
+void TransmitGreen(unsigned char data) {
+	// for each bit of data
+	for(int i = 7; i >=0; --i){
+		// Set SRCLR to 1 allowing data to be set
+		// Also clear SRCLK in preparation of sending data
+		PORTC = 0x08;
+		// set SER = next bit of data to be sent.
+		PORTC |= (data >>i) & 0x01;
+		// set SRCLK = 1. Rising edge shifts next bit of data into the shift register
+		// end for each bit of data
+		PORTC |= 0x04;
+	}
+	
+	// set RCLK = 1. Rising edge copies data from the "Shift" register to the "Storage" register
+	PORTC |= 0x02;
+	// clears all lines in preparation of a new transmission
+	PORTC = 0x00;
+}
+
+// send Blue LED matrix data to shift register
+void TransmitBlue(unsigned char data) {
 	// for each bit of data
 	for(int i = 7; i >=0; --i){
 		// Set SRCLR to 1 allowing data to be set

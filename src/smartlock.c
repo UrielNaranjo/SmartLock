@@ -5,24 +5,20 @@
 #include "usart_ATmega1284.h"
 
 // global variables
+unsigned char button = 0;
 unsigned char lockdir = 0; // 0: counterclockwise 1: clockwise
 unsigned char go = 0; // notifies stepper motor to turn the lock
-unsigned char row = 0x80;; // rows to display on led matrix
-unsigned char pattern; // patterns to display on led matrix
+unsigned char row = 0xFF; // rows to display on led matrix
+unsigned char red = 0xFF; // controls the red leds of the matrix
+unsigned char green = 0xFF; // controls the green leds of the matrix
+unsigned char blue = 0xFF; // controls the blue leds of the blue matrix
 unsigned char data; // data received from app
-/*unsigned char rgb[8][8] = { // controls the color of the LED Matrix
-	{1,0,0},  // col 1 = red, col 2 = green, col 3 = blue
-	{0,1,0},
-	{0,0,1},
-	{1,1,0},
-	{1,0,1},
-	{0,1,1},
-	{1,1,1},
-	{0,0,1}
-};*/
-unsigned char red = 0x9C;
-unsigned char green = 0x56;
-unsigned char blue = 0x2F;
+
+// Smart Lock main control state machine
+enum smartlock{lockInit, unlocked, locked}lockstate;
+void smartlockInit();
+void smartlockTick();
+void smartlockTask();
 
 // Stepper motor SM to control the turning of the lock
 enum StepperMotor{stepperInit, stepperWait, A, AB, B, BC, C, CD, D, DA }stepperState;
@@ -48,20 +44,29 @@ void ReceiveInit();
 void ReceiveTick();
 void ReceiveTask();
 
-// shift register functions
-void rowTransmit(unsigned char data);
-void TransmitRed(unsigned char data);
-void TransmitGreen(unsigned char data);
-void TransmitBlue(unsigned char data);
+// Button SM
+enum Button{BInit, buttonWait, buttonbuffer, buttonpress}buttonstate;
+void ButtonInit();
+void ButtonTick();
+void ButtonTask();
+
+// shift register function
+void MatrixTransmit(unsigned char rowdata, unsigned char reddata, unsigned char greendata, unsigned char bluedata);
 
 void StartSecPulse(unsigned portBASE_TYPE Priority){
-	xTaskCreate(stepTask, (signed portCHAR *)"stepSecTask", configMINIMAL_STACK_SIZE, NULL, 3, NULL );
-	xTaskCreate(LEDMatrixTask, (signed portCHAR *)"LEDMatrixSecTask", configMINIMAL_STACK_SIZE, NULL, 4, NULL );
-	xTaskCreate(TransmitTask, (signed portCHAR *)"TransmitSecTask", configMINIMAL_STACK_SIZE, NULL, 2, NULL );
-   	xTaskCreate(ReceiveTask, (signed portCHAR *)"ReceiveSecTask", configMINIMAL_STACK_SIZE, NULL, 1, NULL );
+	xTaskCreate(smartlockTask, (signed portCHAR *)"smartlockSecTask", configMINIMAL_STACK_SIZE, NULL, Priority, NULL );
+	xTaskCreate(stepTask, (signed portCHAR *)"stepSecTask", configMINIMAL_STACK_SIZE, NULL, Priority, NULL );
+	xTaskCreate(LEDMatrixTask, (signed portCHAR *)"LEDMatrixSecTask", configMINIMAL_STACK_SIZE, NULL, Priority, NULL );
+	xTaskCreate(TransmitTask, (signed portCHAR *)"TransmitSecTask", configMINIMAL_STACK_SIZE, NULL, Priority, NULL );
+   	xTaskCreate(ReceiveTask, (signed portCHAR *)"ReceiveSecTask", configMINIMAL_STACK_SIZE, NULL, Priority, NULL );
+	xTaskCreate(ButtonTask, (signed portCHAR *)"ButtonSecTask", configMINIMAL_STACK_SIZE, NULL, Priority, NULL );
 }
 
 int main(){
+	// initialize ports to input or output
+	DDRA = 0xFF; PORTA = 0x00; // A0-A4 stepper motor
+	DDRB = 0xFF; PORTB = 0x00; // led matrix
+	DDRC = 0x00; PORTC = 0xFF; // C0 button
 	
 	// intitialize USART
 	initUSART(0);
@@ -72,13 +77,156 @@ int main(){
 	return 0;
 }
 
+void smartlockInit(){
+	lockstate = lockInit;
+}
+
+void smartlockTick(){
+	// state transitions
+	switch(lockstate){
+		case lockInit:
+			lockstate = unlocked;
+			break;
+	
+		case unlocked:
+			if(button){
+				go = 1;
+				lockdir = 0;
+				button = 0;
+				lockstate = locked;
+			}
+			else{
+				lockstate = unlocked;
+			}
+			break;
+	
+		case locked: 
+			if(button){
+				lockdir = 1;
+				go = 1;
+				button = 0;
+				lockstate = unlocked;
+			}
+			else{
+				lockstate = locked;
+			}
+			break;
+	
+		default:
+			lockstate = lockInit;
+			break;
+	}
+	// state actions
+	switch(lockstate){
+		case lockInit:
+			break;
+		
+		case unlocked:
+			red = 0x00;
+			blue = 0x00;
+			green = 0xFF;
+			break;
+		
+		case locked:
+			red = 0xFF;
+			blue = 0x00;
+			green = 0x00;
+			break;
+		
+		default:
+			break;
+	}
+}
+
+void smartlockTask(){
+	smartlockInit();
+	for(;;){
+		smartlockTick();
+		vTaskDelay(50);
+	}
+}
+
+void ButtonInit(){
+	buttonstate = BInit;
+}
+
+void ButtonTick(){
+	static unsigned char count;
+	unsigned char input = ~PINC & 0x01;
+	// state transitions
+	switch(buttonstate){
+		case BInit:
+			count = 0;
+			buttonstate = buttonWait;
+			break;
+		
+		case buttonWait:
+			if(input){
+				button = 1;
+				buttonstate = buttonbuffer;
+			}
+			else{
+				buttonstate = buttonWait;
+			}
+			break;
+		
+		case buttonbuffer:
+			if(count >= 31){ // must wait for lock to finish turning
+				buttonstate = buttonpress;
+				count = 0;
+			}
+			else{
+				buttonstate = buttonbuffer;
+			}
+			break;
+		
+		case buttonpress:
+			if(!input){
+				buttonstate = buttonWait;
+			}
+			else{
+				buttonstate = buttonpress;
+			}
+			break;
+		
+		default:
+			buttonstate = BInit;
+			break;
+	}
+	// state actions
+	switch(buttonstate){
+		case BInit:
+			break;
+		
+		case buttonWait:
+			break;
+				
+		case buttonbuffer:
+			count++;
+			break;
+		
+		case buttonpress:
+			break;
+		
+		default:
+			break;
+	}
+}
+
+void ButtonTask(){
+	ButtonInit();
+	for(;;){
+		ButtonTick();
+		vTaskDelay(100);
+	}
+}
 
 void stepInit(){
 	stepperState = stepperInit;
 }
 
 void stepTick(){
-	static unsigned char numPhases; // num of motor phases to lock/unlock
+	static int numPhases; // num of motor phases to lock/unlock
 	static unsigned char output;
 	// state transitions
 	switch(stepperState){
@@ -89,7 +237,7 @@ void stepTick(){
 		case stepperWait:
 			if(go){
 				go = 0;
-				numPhases = 180;
+				numPhases = (90 / 5.625) * 64;
 				stepperState = A;
 			}
 			else{
@@ -249,6 +397,7 @@ void stepTick(){
 		default:
 			break;
 	}
+	PORTA = output;
 }
 
 void stepTask(){
@@ -285,10 +434,11 @@ void LEDMatrixTick(){
 			break;
 		
 		case leddisplay:
-			rowTransmit(row);
-			TransmitRed(red);
-			TransmitGreen(green);
-			TransmitBlue(blue);
+			MatrixTransmit(row, ~red, ~green, ~blue);
+			//rowTransmit(row);
+			//TransmitRed(red);
+			//TransmitGreen(green);
+			//TransmitBlue(blue);
 			break;
 		
 		default:
@@ -415,81 +565,27 @@ void TransmitTask(){
 	}
 }
 
-// send LED matrix data to shift register
-void rowTransmit(unsigned char data) {
+// send led matrix data to shift registers
+void MatrixTransmit(unsigned char rowdata, unsigned char reddata, unsigned char greendata, unsigned char bluedata) {
+	unsigned char rojo, verde, azul, temprow;
 	// for each bit of data
 	for(int i = 7; i >=0; --i){
 		// Set SRCLR to 1 allowing data to be set
 		// Also clear SRCLK in preparation of sending data
-		PORTC = 0x08;
+		PORTB = 0x28;
 		// set SER = next bit of data to be sent.
-		PORTC |= (data >>i) & 0x01;
+		rojo = (((reddata >> i) & 0x01) << 6); // ser location of red led
+		verde = ((greendata >> i) & 0x01); // ser location of green led
+		azul = (((bluedata >> i) & 0x01) << 7); // ser location of blue led
+		temprow = (((rowdata >> i) & 0x01) << 4);
+		PORTB |= (temprow | rojo | verde | azul);
 		// set SRCLK = 1. Rising edge shifts next bit of data into the shift register
 		// end for each bit of data
-		PORTC |= 0x04;
+		PORTB |= 0x04;
 	}
 	
 	// set RCLK = 1. Rising edge copies data from the "Shift" register to the "Storage" register
-	PORTC |= 0x02;
+	PORTB |= 0x02;
 	// clears all lines in preparation of a new transmission
-	PORTC = 0x00;
-}
-
-// send Red LED matrix data to shift register
-void TransmitRed(unsigned char data) {
-	// for each bit of data
-	for(int i = 7; i >=0; --i){
-		// Set SRCLR to 1 allowing data to be set
-		// Also clear SRCLK in preparation of sending data
-		PORTC = 0x08;
-		// set SER = next bit of data to be sent.
-		PORTC |= (data >>i) & 0x01;
-		// set SRCLK = 1. Rising edge shifts next bit of data into the shift register
-		// end for each bit of data
-		PORTC |= 0x04;
-	}
-	// set RCLK = 1. Rising edge copies data from the "Shift" register to the "Storage" register
-	PORTC |= 0x02;
-	// clears all lines in preparation of a new transmission
-	PORTC = 0x00;
-}
-
-// send Green LED matrix data to shift register
-void TransmitGreen(unsigned char data) {
-	// for each bit of data
-	for(int i = 7; i >=0; --i){
-		// Set SRCLR to 1 allowing data to be set
-		// Also clear SRCLK in preparation of sending data
-		PORTC = 0x08;
-		// set SER = next bit of data to be sent.
-		PORTC |= (data >>i) & 0x01;
-		// set SRCLK = 1. Rising edge shifts next bit of data into the shift register
-		// end for each bit of data
-		PORTC |= 0x04;
-	}
-	
-	// set RCLK = 1. Rising edge copies data from the "Shift" register to the "Storage" register
-	PORTC |= 0x02;
-	// clears all lines in preparation of a new transmission
-	PORTC = 0x00;
-}
-
-// send Blue LED matrix data to shift register
-void TransmitBlue(unsigned char data) {
-	// for each bit of data
-	for(int i = 7; i >=0; --i){
-		// Set SRCLR to 1 allowing data to be set
-		// Also clear SRCLK in preparation of sending data
-		PORTC = 0x08;
-		// set SER = next bit of data to be sent.
-		PORTC |= (data >>i) & 0x01;
-		// set SRCLK = 1. Rising edge shifts next bit of data into the shift register
-		// end for each bit of data
-		PORTC |= 0x04;
-	}
-	
-	// set RCLK = 1. Rising edge copies data from the "Shift" register to the "Storage" register
-	PORTC |= 0x02;
-	// clears all lines in preparation of a new transmission
-	PORTC = 0x00;
+	PORTB = 0x00;
 }

@@ -317,7 +317,7 @@ void smartlockTick(){
 		default:
 			break;
 	}
-	PORTA |= islocked;
+	PORTA = (PORTA & 0xFE) | islocked;
 }
 
 void smartlockTask(){

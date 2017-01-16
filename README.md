@@ -11,7 +11,7 @@ Demo Below:
 
 <a href="https://youtu.be/E6MVggHiowo
 " target="_blank"><img src="http://i.imgur.com/6XV9gjy.jpg" 
- width="240" height="180" border="5" /></a>
+ width="600" height="450" border="5" /></a>
 
 ## Technology
 

@@ -7,7 +7,7 @@ door. If someone attempts to guess these passwords too many times, they will tri
 alarm which will then disable any further attempts. This will prevent anyone from entering
 for an extended period of time.
 
-Demo Below:
+**Demo Below:**
 
 <a href="https://youtu.be/E6MVggHiowo
 " target="_blank"><img src="http://i.imgur.com/6XV9gjy.jpg" 

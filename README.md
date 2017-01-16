@@ -1,5 +1,5 @@
 # SmartLock
-	Smart Lock is a bluetooth controlled electromagnetic lock that is designed to improve
+Smart Lock is a bluetooth controlled electromagnetic lock that is designed to improve
 door lock security. It allows you to no longer have to carry your keys around as you can
 unlock or lock your door using your smartphone. Smart Lock is equipped with a multi-step
 lock function that allows you to setup three different passwords to further secure your 
@@ -7,11 +7,11 @@ door. If someone attempts to guess these passwords too many times, they will tri
 alarm which will then disable any further attempts. This will prevent anyone from entering
 for an extended period of time.
 
-Short Demo Below:
+Demo Below:
 
 <a href="https://youtu.be/E6MVggHiowo
-" target="_blank"><img src="http://imgur.com/6XV9gjy" 
-alt="Timed brightness option in Settings (In Development)" width="240" height="180" border="5" /></a>
+" target="_blank"><img src="http://i.imgur.com/6XV9gjy.jpg" 
+ width="240" height="180" border="5" /></a>
 
 ## Technology
 
